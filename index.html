@@ -114,7 +114,11 @@ details summary { cursor: pointer; font-weight: 600; }
     <div class="eyebrow">Shared progress</div>
     <h2 id="sharedTitle"></h2>
     <p class="small" id="sharedSub"></p>
-    <div class="row" style="margin-top:10px"><a class="btn" id="ownBtn" href="./">Open the finder</a></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" id="mergeBtn" type="button">Add these to my list</button>
+      <a class="btn" id="ownBtn" href="./">Open the finder</a>
+    </div>
+    <p class="small" style="margin-top:8px">“Add these to my list” keeps the pieces you already marked and adds these. To sync both ways, then tap “Share progress” and send your link back.</p>
   </section>
 
   <section class="scan" aria-label="Scan">
@@ -744,6 +748,18 @@ async function shareProgress() {
   catch (e) { prompt("Copy this link:", url); }
 }
 $("shareBtn").addEventListener("click", shareProgress);
+$("mergeBtn").addEventListener("click", () => {
+  let mine = [];
+  try { mine = JSON.parse(localStorage.getItem("placed") || "[]"); } catch (e) {}
+  const set = new Set(mine.filter((k) => Number.isInteger(k) && k >= 0 && k < NP));
+  const before = set.size;
+  VIEW.ids.forEach((k) => set.add(k));
+  try {
+    localStorage.setItem("placed", JSON.stringify([...set].sort((a, b) => a - b)));
+    sessionStorage.setItem("mergeMsg", `Added ${set.size - before} piece${set.size - before === 1 ? "" : "s"} from the shared link. You now have ${set.size} placed.`);
+  } catch (e) { alert("Couldn't save on this device (private browsing?)."); return; }
+  location.replace(location.href.split("#")[0]);
+});
 
 async function initStore() {
   if (VIEW) {
@@ -1018,6 +1034,7 @@ mapImg.onload = () => drawMap();
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => render());
 render();
 initStore();
-(async () => { await tick(); await templateSpectra("norm"); if (!live.on) setStatus("Ready. Tap “Live scan” and hold the phone over a piece, or take a “Photo”."); })();
+(async () => { await tick(); await templateSpectra("norm"); let msg = null; try { msg = sessionStorage.getItem("mergeMsg"); sessionStorage.removeItem("mergeMsg"); } catch (e) {}
+  if (!live.on) setStatus(msg || "Ready. Tap “Live scan” and hold the phone over a piece, or take a “Photo”."); })();
 </script>
 </body></html>
