@@ -57,6 +57,10 @@ h1 span { color: var(--accent); }
 .liveres h3 { font: 800 1.6rem/1.05 var(--display); margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
 .liveres p { margin: 0; }
 #liveTurn { font-weight: 600; }
+.shared h2 { font: 800 1.9rem/1.05 var(--display); margin: 4px 0 4px; font-variant-numeric: tabular-nums; }
+.shared p { margin: 0; }
+a.btn { text-decoration: none; }
+body.viewonly .scan, body.viewonly #status, body.viewonly #shareRow, body.viewonly #shareRow + p, body.viewonly .tipsCard { display: none; }
 .live .row .btn { flex: 1 1 120px; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px;
@@ -105,6 +109,13 @@ details summary { cursor: pointer; font-weight: 600; }
     <h1>Red Menace <span>Finder</span></h1>
     <span class="count" id="count">524 pieces</span>
   </header>
+
+  <section class="card shared" id="sharedCard" hidden>
+    <div class="eyebrow">Shared progress</div>
+    <h2 id="sharedTitle"></h2>
+    <p class="small" id="sharedSub"></p>
+    <div class="row" style="margin-top:10px"><a class="btn" id="ownBtn" href="./">Open the finder</a></div>
+  </section>
 
   <section class="scan" aria-label="Scan">
     <button class="btn primary" id="liveBtn" type="button">
@@ -184,12 +195,19 @@ details summary { cursor: pointer; font-weight: 600; }
   <section class="card">
     <details id="placedDetails">
       <summary id="placedSummary">Placed pieces (0)</summary>
-      <p class="small" style="margin:8px 0 0">Placed pieces are left out of future matches. Tap one to put it back.</p>
+      <p class="small" style="margin:8px 0 0" id="placedHelp">Placed pieces are left out of future matches. Tap one to put it back.</p>
       <div class="placed" id="placedList"></div>
     </details>
+    <div class="row" style="margin-top:12px" id="shareRow">
+      <button class="btn" id="shareBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/></svg>
+        Share progress
+      </button>
+    </div>
+    <p class="small" style="margin:8px 0 0">Sends a link that shows the map with your placed pieces as they are right now. Share again later for an update.</p>
   </section>
 
-  <section class="card">
+  <section class="card tipsCard">
     <div class="eyebrow" style="margin-bottom:6px">For a good scan</div>
     <ul class="tips">
       <li>One piece, red side up, on a plain non-red surface.</li>
@@ -686,6 +704,7 @@ function renderPlaced() {
   [...state.placed].sort((a, b) => a - b).forEach((k) => {
     const b = document.createElement("button"); b.type = "button"; b.className = "chip";
     b.textContent = `#${k + 1} ${locName(DATA.pieces[k])} ✕`;
+    if (VIEW) { b.textContent = `#${k + 1} ${locName(DATA.pieces[k])}`; b.disabled = true; list.append(b); return; }
     b.setAttribute("aria-label", `Put back box shape ${k + 1}`);
     b.addEventListener("click", () => { state.placed.delete(k); savePlaced(); render(); });
     list.append(b);
@@ -694,7 +713,49 @@ function renderPlaced() {
 
 // ---------------------------------------------------------------- placed pieces (kept per person)
 let store = null;
+// ---- shared progress links: #p=<bitset, base64url>&t=<yyyy-mm-dd>
+const SHARE_BASE = /github\.io$/.test(location.hostname) ? location.origin + location.pathname : "https://ezoboli.github.io/New/";
+function encodePlaced(set) {
+  const b = new Uint8Array(Math.ceil(NP / 8));
+  for (const k of set) b[k >> 3] |= 1 << (k & 7);
+  let s = ""; b.forEach((v) => (s += String.fromCharCode(v)));
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function decodePlaced(code) {
+  const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/")), out = [];
+  for (let i = 0; i < bin.length; i++) for (let j = 0; j < 8; j++) if ((bin.charCodeAt(i) >> j) & 1 && i * 8 + j < NP) out.push(i * 8 + j);
+  return out;
+}
+const VIEW = (() => {
+  try {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (!h.has("p")) return null;
+    return { ids: decodePlaced(h.get("p")), date: h.get("t") || "" };
+  } catch (e) { return null; }
+})();
+async function shareProgress() {
+  const n = state.placed.size, today = new Date().toISOString().slice(0, 10);
+  const url = `${SHARE_BASE}#p=${encodePlaced(state.placed)}&t=${today}`;
+  const text = `Red Menace puzzle: ${n} of ${NP} pieces placed.`;
+  try {
+    if (navigator.share) { await navigator.share({ title: "Red Menace progress", text, url }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(url); setStatus("Progress link copied. Paste it into a message."); }
+  catch (e) { prompt("Copy this link:", url); }
+}
+$("shareBtn").addEventListener("click", shareProgress);
+
 async function initStore() {
+  if (VIEW) {
+    VIEW.ids.forEach((k) => state.placed.add(k));
+    document.body.classList.add("viewonly");
+    $("sharedCard").hidden = false;
+    $("sharedTitle").textContent = `${VIEW.ids.length} of ${NP} placed`;
+    $("sharedSub").textContent = (VIEW.date ? `As of ${VIEW.date}. ` : "") + "Placed pieces are shown dark on the map below.";
+    $("placedHelp").textContent = "The pieces placed so far.";
+    render();
+    return;
+  }
   try { const v = JSON.parse(localStorage.getItem("placed") || "[]"); v.forEach((k) => state.placed.add(k)); } catch (e) {}
   try {
     if (!window.claude?.use) return;
